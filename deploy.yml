@@ -1,0 +1,73 @@
+name: Deploy & Build APK
+
+on:
+  push:
+    branches: [ main ]
+  release:
+    types: [ created ]
+
+jobs:
+  # ─────────────────────────────────────────
+  # JOB 1: Deploy to Railway on every push
+  # ─────────────────────────────────────────
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy
+        run: railway up --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        continue-on-error: true  # won't fail if Railway not configured
+
+  # ─────────────────────────────────────────
+  # JOB 2: Build TWA APK on new Release tag
+  # ─────────────────────────────────────────
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Bubblewrap
+        run: npm install -g @bubblewrap/cli
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Init Bubblewrap TWA
+        run: |
+          bubblewrap init \
+            --manifest "${{ secrets.APP_URL }}/manifest.json" \
+            --directory ./twa-app
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+
+      - name: Build APK
+        working-directory: ./twa-app
+        run: |
+          bubblewrap build --skipPwaValidation
+
+      - name: Upload APK to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./twa-app/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
